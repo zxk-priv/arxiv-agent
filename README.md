@@ -2,7 +2,7 @@
 
 `arxiv-agent` 是一个面向初学者也能读懂的小型 Python 工程。
 
-它会抓取 arXiv `cs.CV/recent` 页面中“最新一天”的论文，把结果写入本地 Markdown 缓存，并通过 Gradio 页面展示为论文卡片流。可选地，它还可以调用 SiliconFlow 为论文生成中文简介。
+它会抓取 arXiv `cs.CV/recent` 页面中“最新一天”的论文，把结果写入本地 Markdown 缓存，并通过 Gradio 页面展示为论文卡片流。可选地，它还可以通过 `openai` Python SDK 调用 SiliconFlow 的 OpenAI 兼容接口，为论文生成中文简介。
 
 ## 这个项目能做什么
 
@@ -32,7 +32,7 @@ arxiv-agent/
         ├── models.py               # 核心数据模型
         ├── clients/
         │   ├── arxiv_client.py     # arXiv 页面抓取
-        │   └── siliconflow_client.py
+        │   └── siliconflow_client.py # 基于 openai SDK 的 SiliconFlow 客户端
         ├── services/
         │   └── digest_service.py   # 业务主流程编排
         ├── storage/
@@ -68,7 +68,9 @@ uv sync
 
 如果只想抓取论文和启动页面，不需要配置大模型。
 
-如果你想生成中文简介，可以复制 `.env.example` 为 `.env`，再填写 SiliconFlow 配置：
+如果你想生成中文简介，可以复制 `.env.example` 为 `.env`，再填写 SiliconFlow 配置。
+
+这里虽然接的是 SiliconFlow，但代码层使用的是 `openai` 官方 Python SDK；本质上是把 `base_url` 指向 SiliconFlow 的 OpenAI 兼容接口地址：
 
 ```bash
 cp .env.example .env
@@ -92,6 +94,12 @@ uv run arxiv-agent fetch
 
 ```bash
 uv run arxiv-agent summarize
+```
+
+如果你只想验证 API 是否可用，推荐只处理 1 篇论文，避免浪费 token：
+
+```bash
+uv run arxiv-agent summarize --limit 1
 ```
 
 启动 Gradio 页面：

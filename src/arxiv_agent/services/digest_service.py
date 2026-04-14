@@ -102,12 +102,20 @@ class DigestService:
         model: str,
         limit: int,
     ) -> DailyDigest:
-        """只为前 N 篇论文生成中文简介。"""
+        """只为前 N 篇论文生成中文简介。
+
+        这个方法适合两类场景：
+        - 页面里按需只给前几篇论文生成简介
+        - 验证外部模型接口是否正常时，只测试 1 篇论文，避免浪费 token
+        """
 
         if limit <= 0:
             raise RuntimeError("前几篇论文的数量必须大于 0。")
 
-        digest = self.load_or_refresh_for_ui()
+        digest = self.ensure_latest_digest()
+        selected_papers = digest.papers[:limit]
+        self._fetch_missing_abstracts_for_papers(selected_papers)
+
         summarizer = SiliconFlowClient(
             api_key=api_key,
             model=model,
@@ -189,12 +197,22 @@ class DigestService:
     def _fetch_missing_abstracts(self, digest: DailyDigest) -> None:
         """并发补全缺失的英文摘要。"""
 
-        missing_papers = [paper for paper in digest.papers if not paper.has_abstract]
+        self._fetch_missing_abstracts_for_papers(digest.papers)
+
+    def _fetch_missing_abstracts_for_papers(self, papers: list[PaperEntry]) -> None:
+        """只为给定论文集合补全缺失的英文摘要。
+
+        这个辅助方法是为了避免“只想处理 1 篇论文时，却顺手把全量摘要都抓一遍”。
+        对页面整页刷新来说，传入全量论文即可；对单篇验证 API 的场景，则只传入
+        需要验证的那几篇论文。
+        """
+
+        missing_papers = [paper for paper in papers if not paper.has_abstract]
         if not missing_papers:
             return
 
         max_workers = min(8, len(missing_papers))
-        paper_index = {paper.arxiv_id: paper for paper in digest.papers}
+        paper_index = {paper.arxiv_id: paper for paper in papers}
 
         def worker(paper: PaperEntry) -> tuple[str, str | None, str | None]:
             with ArxivClient(timeout=self.config.request_timeout_seconds) as arxiv_client:

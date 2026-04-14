@@ -49,9 +49,15 @@ def parse_args() -> argparse.Namespace:
 
     subparsers = parser.add_subparsers(dest="command", required=False)
     subparsers.add_parser("fetch", help="仅抓取最新一天论文基础信息并更新 Markdown 缓存。")
-    subparsers.add_parser(
+    summarize_parser = subparsers.add_parser(
         "summarize",
         help="补全英文摘要，并在已配置 SiliconFlow 时生成中文简介。",
+    )
+    summarize_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="只为前 N 篇论文生成中文简介；不传则按原逻辑处理全部论文。",
     )
 
     serve_parser = subparsers.add_parser(
@@ -97,10 +103,18 @@ def main() -> None:
         return
 
     if command == "summarize":
-        digest = digest_service.refresh_latest_digest(
-            include_abstracts=True,
-            include_summaries=True,
-        )
+        summary_limit = getattr(args, "limit", None)
+        if summary_limit is None:
+            digest = digest_service.refresh_latest_digest(
+                include_abstracts=True,
+                include_summaries=True,
+            )
+        else:
+            digest = digest_service.summarize_first_n_papers(
+                api_key=config.siliconflow_api_key,
+                model=config.siliconflow_model,
+                limit=summary_limit,
+            )
         print(f"已更新摘要缓存: {config.latest_markdown_path}")
         print(f"最近分组: {digest.heading}")
         print(f"已生成简介: {digest.ready_count}")

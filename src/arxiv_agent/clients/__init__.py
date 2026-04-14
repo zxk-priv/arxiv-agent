@@ -2,7 +2,7 @@
 
 这一层只负责和外部系统通信，不负责业务编排：
 - `ArxivClient` 负责抓取 arXiv 页面与摘要。
-- `SiliconFlowClient` 负责调用大模型生成中文简介。
+- `SiliconFlowClient` 负责通过 `openai` Python SDK 调用兼容接口生成中文简介。
 
 业务层如果需要组合这些能力，应当在 `services` 层里完成。
 """
