@@ -154,3 +154,8 @@ uv run python -m arxiv_agent serve
 - 想改业务流程：看 `services/digest_service.py`
 - 想改页面样式：看 `ui/styles.py`
 - 想改页面布局：看 `ui/renderers.py` 和 `ui/gradio_app.py`
+
+## 额外文档
+
+- [docs/arxiv-client-flow.md](docs/arxiv-client-flow.md)
+  详细解释 `src/arxiv_agent/clients/arxiv_client.py` 是如何读取最新一天论文、提取标题、摘要和 PDF 链接的。
