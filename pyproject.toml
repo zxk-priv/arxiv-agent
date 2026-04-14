@@ -1,0 +1,22 @@
+[project]
+name = "arxiv-agent"
+version = "0.1.0"
+description = "Fetch the latest arXiv cs.CV papers, cache them as Markdown, and display them with Gradio"
+readme = "README.md"
+authors = [
+    { name = "zxk-priv", email = "zhaoxuekun@bupt.edu.cn" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "gradio>=6.12.0",
+    "pyyaml>=6.0.3",
+    "requests>=2.33.1",
+]
+
+[project.scripts]
+arxiv-agent = "arxiv_agent.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
