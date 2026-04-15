@@ -8,6 +8,7 @@
 """
 
 from .arxiv_client import ArxivClient, now_utc_iso
+from .embedding_client import SiliconFlowEmbeddings
 from .siliconflow_client import SiliconFlowClient
 
-__all__ = ["ArxivClient", "SiliconFlowClient", "now_utc_iso"]
+__all__ = ["ArxivClient", "SiliconFlowClient", "SiliconFlowEmbeddings", "now_utc_iso"]

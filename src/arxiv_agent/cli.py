@@ -6,7 +6,8 @@ import argparse
 import socket
 
 from arxiv_agent.config import DEFAULT_LISTING_URL, DEFAULT_OUTPUT_DIR, load_config
-from arxiv_agent.services import DigestService
+from arxiv_agent.models import RECOMMENDATION_MODE_KEYWORD, RECOMMENDATION_MODE_PREFERENCE
+from arxiv_agent.services import DigestService, PreferenceService, RecommendationService
 from arxiv_agent.ui import create_blocks
 
 
@@ -17,6 +18,7 @@ def _find_available_port(host: str, preferred_port: int) -> int:
     """从首选端口开始向后探测一个可用端口。"""
 
     for port in range(preferred_port, preferred_port + PORT_SCAN_LIMIT + 1):
+        # IPV4 TCP协议
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
@@ -59,6 +61,33 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="只为前 N 篇论文生成中文简介；不传则按原逻辑处理全部论文。",
     )
+    build_preferences_parser = subparsers.add_parser(
+        "build-preferences",
+        help="读取 paper_datasets 下的 PDF，构建偏好缓存与整体研究画像。",
+    )
+    build_preferences_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="打印更详细的阶段日志。",
+    )
+    recommend_keyword_parser = subparsers.add_parser(
+        "recommend-keyword",
+        help="按关键词生成当天论文推荐结果，并写入结果 Markdown。",
+    )
+    recommend_keyword_parser.add_argument(
+        "--query",
+        required=True,
+        help="关键词模式下的检索 query。",
+    )
+    recommend_preference_parser = subparsers.add_parser(
+        "recommend-preference",
+        help="基于 paper_datasets 的论文库偏好生成当天论文推荐结果，并写入结果 Markdown。",
+    )
+    recommend_preference_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="打印更详细的阶段日志。",
+    )
 
     serve_parser = subparsers.add_parser(
         "serve",
@@ -79,6 +108,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _print_workflow(mode: str, snapshots) -> None:
+    """打印推荐工作流阶段日志。"""
+
+    last_snapshot = None
+    for snapshot in snapshots:
+        last_snapshot = snapshot
+        print(f"[{mode}] 当前步骤: {snapshot.current_stage}", flush=True)
+        if snapshot.logs:
+            latest = snapshot.logs[-1]
+            print(
+                f"  - {latest.created_at_utc} [{latest.stage}] {latest.message}",
+                flush=True,
+            )
+
+    if last_snapshot is None:
+        return
+    if last_snapshot.result is not None:
+        print(f"[{mode}] 结果数量: {len(last_snapshot.result.items)}", flush=True)
+
+
 def main() -> None:
     """命令行主入口。"""
 
@@ -91,6 +140,12 @@ def main() -> None:
         server_port=getattr(args, "port", None),
     )
     digest_service = DigestService(config)
+    preference_service = PreferenceService(config)
+    recommendation_service = RecommendationService(
+        config,
+        digest_service=digest_service,
+        preference_service=preference_service,
+    )
 
     if command == "fetch":
         digest = digest_service.refresh_latest_digest(
@@ -120,6 +175,36 @@ def main() -> None:
         print(f"已生成简介: {digest.ready_count}")
         print(f"待生成简介: {digest.missing_count}")
         print(f"生成失败: {digest.failed_count}")
+        return
+
+    if command == "build-preferences":
+        profile = preference_service.build_or_refresh_profile(
+            progress_callback=(
+                lambda stage, message: print(f"[{stage}] {message}", flush=True)
+                if getattr(args, "verbose", False)
+                else None
+            ),
+        )
+        print(f"已更新 PDF 偏好缓存: {config.preference_profile_path}")
+        print(f"PDF 总数: {profile.source_pdf_count}")
+        print(f"分析成功: {profile.ready_count}")
+        print(f"分析失败: {profile.failed_count}")
+        return
+
+    if command == "recommend-keyword":
+        _print_workflow(
+            RECOMMENDATION_MODE_KEYWORD,
+            recommendation_service.run_keyword_workflow(args.query),
+        )
+        print(f"已更新关键词模式结果: {config.keyword_result_path}")
+        return
+
+    if command == "recommend-preference":
+        _print_workflow(
+            RECOMMENDATION_MODE_PREFERENCE,
+            recommendation_service.run_preference_workflow(),
+        )
+        print(f"已更新偏好模式结果: {config.preference_result_path}")
         return
 
     serve_port = _find_available_port(config.server_host, config.server_port)

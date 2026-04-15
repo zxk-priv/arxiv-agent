@@ -63,6 +63,10 @@ CARD_STYLE = """
     font-size: 20px;
     font-weight: 700;
   }
+  .stat-value.small {
+    font-size: 16px;
+    line-height: 1.4;
+  }
   .notice {
     margin-top: 14px;
     padding: 14px 16px;
@@ -76,6 +80,63 @@ CARD_STYLE = """
     display: grid;
     gap: 18px;
     margin-top: 20px;
+  }
+  .profile-grid,
+  .result-grid {
+    margin-top: 14px;
+  }
+  .empty-state {
+    background: #fffdf9;
+    border: 1px dashed #d7c2ab;
+    border-radius: 24px;
+    padding: 32px 24px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(58, 42, 21, 0.05);
+  }
+  .empty-state h2 {
+    margin: 0 0 12px;
+    font-size: 28px;
+    color: #201b15;
+  }
+  .empty-state p {
+    margin: 0;
+    color: #5d5448;
+    line-height: 1.75;
+  }
+  .summary-panel {
+    background: #fffdf9;
+    border: 1px solid #e5d8c7;
+    border-radius: 24px;
+    padding: 24px;
+    box-shadow: 0 10px 30px rgba(58, 42, 21, 0.05);
+    margin-top: 20px;
+  }
+  .summary-panel h2 {
+    margin: 0 0 10px;
+    font-size: 28px;
+    color: #201b15;
+  }
+  .summary-panel p {
+    margin: 0;
+    color: #4f463c;
+    line-height: 1.75;
+    white-space: pre-wrap;
+  }
+  .tag-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 8px 12px;
+    background: #efe5d5;
+    color: #5b4e3d;
+    font-size: 13px;
+    font-weight: 700;
   }
   .paper-card {
     background: #fffdf9;
@@ -140,9 +201,6 @@ CARD_STYLE = """
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
-  .status-ready { background: rgba(44, 122, 80, 0.13); color: #20663f; }
-  .status-missing { background: rgba(183, 115, 0, 0.12); color: #9c6200; }
-  .status-failed { background: rgba(180, 35, 24, 0.12); color: #a0261f; }
   .updated-at {
     color: #756b5f;
     font-size: 13px;

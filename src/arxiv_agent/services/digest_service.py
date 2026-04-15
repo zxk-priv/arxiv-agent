@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
+from datetime import datetime, timezone
 
 from arxiv_agent.clients import ArxivClient, SiliconFlowClient, now_utc_iso
 from arxiv_agent.config import AppConfig
@@ -24,6 +25,12 @@ def digest_needs_abstract_refresh(digest: DailyDigest) -> bool:
     """判断当前缓存里是否还有缺失的英文摘要。"""
 
     return any(not paper.has_abstract for paper in digest.papers)
+
+
+def utc_today_slug() -> str:
+    """返回当前 UTC 日期对应的 `YYYY-MM-DD` 字符串。"""
+
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 class DigestService:
@@ -75,17 +82,31 @@ class DigestService:
             include_summaries=False,
         )
 
-    def load_or_refresh_for_ui(self) -> DailyDigest:
-        """页面启动时优先读缓存；如果摘要不完整，则自动补抓。"""
+    def ensure_today_digest(self) -> DailyDigest:
+        """优先复用“今天”的最新缓存；不是今天时才重新抓取。
+
+        这个方法对应用户期望的行为：
+        - 如果本地 `latest` 已经是今天的缓存，直接读取
+        - 如果本地没有缓存，或缓存日期不是今天，再去抓 arXiv
+        """
 
         digest = load_digest(self.config.latest_markdown_path)
-        if digest is not None and not digest_needs_abstract_refresh(digest):
+        if digest is not None and digest.date_slug == utc_today_slug():
+            if not digest_needs_abstract_refresh(digest):
+                return digest
+            self._fetch_missing_abstracts(digest)
+            self._persist_digest(digest)
             return digest
 
         return self.refresh_latest_digest(
             include_abstracts=True,
             include_summaries=False,
         )
+
+    def load_or_refresh_for_ui(self) -> DailyDigest:
+        """页面启动时优先复用今天缓存；必要时才刷新。"""
+
+        return self.ensure_today_digest()
 
     def load_latest_digest_or_raise(self) -> DailyDigest:
         """严格读取最新缓存；不存在时直接报错。"""
@@ -131,6 +152,60 @@ class DigestService:
         )
         self._persist_digest(digest)
         return digest
+
+    def summarize_papers_by_ids(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        arxiv_ids: list[str],
+    ) -> tuple[DailyDigest, list[PaperEntry], int]:
+        """只为指定 arXiv 编号列表生成中文简介，并保持输入顺序返回。
+
+        这是当前搜索页和摘要生成之间的衔接点。
+
+        调用时机：
+        - `RagService` 已经给出了“命中论文 id 列表”
+        - UI 需要把这些论文展示成卡片
+        - 但用户要求这些卡片必须同时带中文简介
+
+        所以这里做三件事：
+        1. 按检索结果顺序取出论文对象
+        2. 如果命中论文缺英文摘要，先补英文摘要
+        3. 如果命中论文缺中文简介，再调用 SiliconFlow 生成中文简介
+
+        最后会把结果写回 Markdown：
+        - 这样下次搜索命中同一篇论文时可以直接复用
+        - 避免每次都重复消耗总结模型 token
+        """
+
+        normalized_ids = [arxiv_id.strip() for arxiv_id in arxiv_ids if arxiv_id.strip()]
+        if not normalized_ids:
+            return self.ensure_latest_digest(), [], 0
+
+        digest = self.ensure_latest_digest()
+        paper_index = {paper.arxiv_id: paper for paper in digest.papers}
+        selected_papers = [
+            paper_index[arxiv_id]
+            for arxiv_id in dict.fromkeys(normalized_ids)
+            if arxiv_id in paper_index
+        ]
+        if not selected_papers:
+            return digest, [], 0
+
+        self._fetch_missing_abstracts_for_papers(selected_papers)
+
+        summarizer = SiliconFlowClient(
+            api_key=api_key,
+            model=model,
+            base_url=self.config.siliconflow_base_url,
+        )
+        generated_count = self._generate_summaries_for_papers(
+            selected_papers,
+            summarizer=summarizer,
+        )
+        self._persist_digest(digest)
+        return digest, selected_papers, generated_count
 
     def _load_existing_digest(self, date_slug: str) -> DailyDigest | None:
         """优先从归档缓存里读取同一天的数据，没有再看最新缓存。"""
@@ -324,3 +399,78 @@ class DigestService:
 
         write_digest(self.config.latest_markdown_path, digest)
         write_digest(self.config.archive_markdown_path(digest.date_slug), digest)
+
+    def _generate_summaries_for_papers(
+        self,
+        papers: list[PaperEntry],
+        *,
+        summarizer: SiliconFlowClient,
+    ) -> int:
+        """只为给定论文集合中缺少中文简介的条目生成简介。
+
+        注意这里的策略是“按需生成”：
+        - 已有中文简介：直接复用
+        - 没有英文摘要：标记失败
+        - 有英文摘要但没中文简介：调用模型生成
+
+        返回值 `generated_count` 只统计“本次新生成了多少篇”，
+        不统计复用缓存的篇数。UI 会把这个数字显示给用户，
+        让用户知道这次搜索实际触发了多少次模型调用。
+        """
+
+        for paper in papers:
+            if paper.has_summary:
+                paper.summary_status = SUMMARY_STATUS_READY
+                paper.error_message = ""
+            elif not paper.has_abstract:
+                paper.summary_status = SUMMARY_STATUS_FAILED
+                paper.error_message = "缺少英文摘要，无法生成中文简介。"
+                paper.updated_at_utc = now_utc_iso()
+        pending_papers = [
+            paper
+            for paper in papers
+            if not paper.has_summary and paper.has_abstract
+        ]
+        if not pending_papers:
+            return 0
+
+        generated_count = 0
+        max_workers = min(4, len(pending_papers))
+        paper_index = {paper.arxiv_id: paper for paper in pending_papers}
+
+        def worker(paper: PaperEntry) -> tuple[str, str | None, str | None]:
+            local_summarizer = SiliconFlowClient(
+                api_key=self.config.siliconflow_api_key,
+                model=self.config.siliconflow_model,
+                base_url=self.config.siliconflow_base_url,
+            )
+            try:
+                summary = local_summarizer.summarize(
+                    title=paper.title,
+                    abstract=paper.english_abstract,
+                )
+                return paper.arxiv_id, summary, None
+            except Exception as exc:
+                return paper.arxiv_id, None, str(exc)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(worker, paper): paper.arxiv_id
+                for paper in pending_papers
+            }
+
+            for future in as_completed(future_map):
+                arxiv_id, summary, error_message = future.result()
+                paper = paper_index[arxiv_id]
+                paper.updated_at_utc = now_utc_iso()
+                if summary:
+                    paper.zh_summary = summary
+                    paper.summary_status = SUMMARY_STATUS_READY
+                    paper.error_message = ""
+                    generated_count += 1
+                    continue
+
+                paper.summary_status = SUMMARY_STATUS_FAILED
+                paper.error_message = error_message or "中文总结生成失败。"
+
+        return generated_count

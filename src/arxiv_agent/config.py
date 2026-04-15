@@ -19,6 +19,11 @@ DEFAULT_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_OUTPUT_DIR = "output/daily"
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 6008
+DEFAULT_RAG_TOP_K = 20
+DEFAULT_PAPER_DATASET_DIR = "paper_datasets"
+DEFAULT_PREFERENCE_OUTPUT_DIR = "output/preferences"
+DEFAULT_RESULT_OUTPUT_DIR = "output/results"
+DEFAULT_PDF_EXTRACT_PAGES = 5
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DOTENV_PATH = PROJECT_ROOT / ".env"
 
@@ -73,6 +78,16 @@ class AppConfig:
     siliconflow_api_key: str = ""
     siliconflow_base_url: str = DEFAULT_BASE_URL
     siliconflow_model: str = ""
+    siliconflow_embedding_model: str = ""
+    rag_top_k: int = DEFAULT_RAG_TOP_K
+    rag_vector_cache_dir: Path = Path(DEFAULT_OUTPUT_DIR) / ".rag"
+    paper_dataset_dir: Path = Path(DEFAULT_PAPER_DATASET_DIR)
+    preference_output_dir: Path = Path(DEFAULT_PREFERENCE_OUTPUT_DIR)
+    result_output_dir: Path = Path(DEFAULT_RESULT_OUTPUT_DIR)
+    preference_profile_filename: str = "profile_latest.md"
+    keyword_result_filename: str = "keyword_latest.md"
+    preference_result_filename: str = "preference_latest.md"
+    pdf_extract_pages: int = DEFAULT_PDF_EXTRACT_PAGES
 
     @property
     def latest_markdown_path(self) -> Path:
@@ -86,10 +101,38 @@ class AppConfig:
         return self.output_dir / self.latest_archive_pattern.format(date_slug=date_slug)
 
     @property
+    def preference_profile_path(self) -> Path:
+        """返回整体偏好画像 Markdown 路径。"""
+
+        return self.preference_output_dir / self.preference_profile_filename
+
+    @property
+    def keyword_result_path(self) -> Path:
+        """返回关键词模式最终推荐结果路径。"""
+
+        return self.result_output_dir / self.keyword_result_filename
+
+    @property
+    def preference_result_path(self) -> Path:
+        """返回偏好模式最终推荐结果路径。"""
+
+        return self.result_output_dir / self.preference_result_filename
+
+    @property
     def summarize_enabled(self) -> bool:
         """只有同时配置了 API Key 和模型名，才允许生成中文简介。"""
 
         return bool(self.siliconflow_api_key and self.siliconflow_model)
+
+    @property
+    def rag_enabled(self) -> bool:
+        """只有同时配置了 API Key、总结模型和 embedding 模型，才允许搜索。"""
+
+        return bool(
+            self.siliconflow_api_key
+            and self.siliconflow_model
+            and self.siliconflow_embedding_model
+        )
 
 
 def load_config(
@@ -113,4 +156,14 @@ def load_config(
         siliconflow_api_key=os.getenv("SILICONFLOW_API_KEY", "").strip(),
         siliconflow_base_url=os.getenv("SILICONFLOW_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
         siliconflow_model=os.getenv("SILICONFLOW_MODEL", "").strip(),
+        siliconflow_embedding_model=os.getenv("SILICONFLOW_EMBEDDING_MODEL", "").strip(),
+        rag_top_k=DEFAULT_RAG_TOP_K,
+        rag_vector_cache_dir=Path(output_dir) / ".rag",
+        paper_dataset_dir=Path(os.getenv("ARXIV_AGENT_PAPER_DATASET_DIR", DEFAULT_PAPER_DATASET_DIR)),
+        preference_output_dir=Path(os.getenv("ARXIV_AGENT_PREFERENCE_OUTPUT_DIR", DEFAULT_PREFERENCE_OUTPUT_DIR)),
+        result_output_dir=Path(os.getenv("ARXIV_AGENT_RESULT_OUTPUT_DIR", DEFAULT_RESULT_OUTPUT_DIR)),
+        pdf_extract_pages=max(
+            1,
+            int(os.getenv("ARXIV_AGENT_PDF_EXTRACT_PAGES", str(DEFAULT_PDF_EXTRACT_PAGES))),
+        ),
     )

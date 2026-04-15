@@ -5,5 +5,14 @@ UI 和 CLI 都应该优先调用这里提供的服务，而不是直接拼装底
 """
 
 from .digest_service import DigestService, digest_needs_abstract_refresh
+from .preference_service import PreferenceService
+from .rag_service import RagService
+from .recommendation_service import RecommendationService
 
-__all__ = ["DigestService", "digest_needs_abstract_refresh"]
+__all__ = [
+    "DigestService",
+    "PreferenceService",
+    "RagService",
+    "RecommendationService",
+    "digest_needs_abstract_refresh",
+]
